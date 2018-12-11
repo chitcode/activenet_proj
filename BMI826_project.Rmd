@@ -7,6 +7,8 @@ output: html_notebook
 library(EBSeq)
 library(igraph)
 library(stringr)
+library(foreach)
+library(doParallel)
 ```
 
 ```{r}
@@ -100,43 +102,54 @@ p_values <- p_values[genes_common]
 ```
 
 
-
-## Subnetwork Scoring
-
 ```{r}
 p_mean <- mean(p_values)
 p_sd <- sd(p_values)
 z_scores <- (p_values-p_mean)/p_sd
 
-#z_scores <- z_scores[names(V(G1))]
-z_scores <- abs(z_scores)
-
-# Building random Z score for corresponding k sized network
-# let's build k upto 100 using Monte-Carlo simulation
-
-max_k <- length(z_scores)
-mu_k <- numeric(max_k)
-sigma_k <- numeric(max_k)
-for (k in 1:max_k){
-  sim_count <- 10
-  mc_z <- numeric(sim_count)
-  for (i in 1:sim_count){
-    mc_z[i] <- sum(sample(z_scores,size = k,replace = TRUE))/sqrt(k)
-  }
-  mu_k[k] <- mean(mc_z)
-  sigma_k[k] <- sd(mc_z)
-  if(k %% 200 == 0){
-    cat(".")
-  }
-}
-
+#z_scores <- abs(z_scores)
 ```
+
+## Pre-building Mu_k and Sigma_k using Monte-Carlo simulation
+# Mu_k : Mean z-scores for k randonly selected nodes
+# Sigma_k : Standard Deviation of z-scores for k randonly selected nodes
 
 
 ```{r}
+
+no_cores <- detectCores() - 1
+cl <- makeCluster(no_cores)
+registerDoParallel(no_cores)
+
+max_k <- length(z_scores)
+
+combine <- function(x, ...) {  
+  mapply(rbind, x, ..., SIMPLIFY = FALSE)
+}
+
+mc_results <- foreach(k=1:max_k, .export = "z_scores",.combine = combine, .multicombine = TRUE) %dopar%{
+  sim_count = 100
+  mc_z <- numeric(sim_count)
+  for(i in 1:sim_count){
+    mc_z[i] <- sum(sample(z_scores,size = k,replace = TRUE))/sqrt(k)
+  }
+  mu_k <- mean(mc_z)
+  sigma_k <- sd(mc_z)
+  list(mu_k,sigma_k)
+}
+
+stopImplicitCluster()
+
+mu_k <- mc_results[[1]]
+sigma_k <- mc_results[[2]]
+```
+
+
+
+## Subnetwork Scoring
+```{r}
 score_subgrpup <- function(group_genes){
   #getting the z-score for the genes
-  #print(group_genes)
   k <- length(group_genes)
   z_A = sum(group_genes)/k**(3/4)
   
@@ -229,7 +242,36 @@ result <- simulated_annealing(G1,100000,100,score_subgrpup,100000,.999)
 ## Ploting
 
 
+```{r}
+p_sorted <- sort(p_values)
 
+
+cat(paste(names(p_sorted[p_sorted < 0.005]),'\n'))
+
+cat(paste(names(z_scores)[result[[1]] == 1],'\n'))
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+plot(1:18413,result[[2]][1:18413], 'l')
+
+
+
+
+
+k_counts <- seq(1,length(z_scores))
+mu_k_score <- (mu_k)/(k_counts)**(1/2)
+plot(1:length(mu_k),mu_k_score, 'l')
+
+```
 
 
 

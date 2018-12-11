@@ -1,0 +1,197 @@
+---
+title: "BMI_Project_with_Cytoscape"
+output: html_notebook
+---
+### Loading all the libraries
+```{r}
+library(EBSeq)
+library(igraph)
+library(stringr)
+```
+
+Loading Lung Cancer - Metastasis Brain Cancer Data
+
+```{r}
+lungbrain_data <- read.csv("~/UW_classes/BMI826/project/data/lungbrain_data_normed.csv", stringsAsFactors = FALSE)
+
+row.names(lungbrain_data) <- lungbrain_data[,1]
+lungbrain_data <- lungbrain_data[,2:dim(lungbrain_data)[2]]
+
+head(lungbrain_data)
+```
+
+```{r}
+ln_cols <- c("X1LN","X2LN","X3LN" ,"X4LN" , "X5LN" , "X6LN" , "X7LN",  "X8LN",  "X9LN" , "X10LN" ,"X11LN", "X12LN" ,"X14LN", "X15LN" ,"X17LN" ,"X18LN" ,"X19LN", "X20LN", "X21LN", "X22LN" ,"X23LN" ,"X24LN", "X26LN" ,"X27LN" ,"X29LN") 
+ 
+ lt_cols <- c("X1LT" , "X2LT" ,"X3LT" , "X4LT" , "X5LT" , "X6LT" , "X7LT",  "X8LT" , "X9LT",  "X10LT", "X11LT" ,"X12LT" ,"X14LT" ,"X15LT" ,"X17LT" ,"X18LT", "X19LT", "X20LT" ,"X21LT", "X22LT", "X23LT", "X24LT", "X26LT" ,"X27LT", "X29LT")
+ 
+ bt_cols <- c("X1BT",  "X2BT" , "X3BT" , "X4BT" , "X5BT" , "X6BT" , "X7BT",  "X8BT",  "X9BT",  "X10BT", "X11BT" ,"X12BT" ,"X14BT", "X15BT" ,"X17BT", "X18BT" ,"X19BT" ,"X20BT", "X21BT", "X22BT", "X23BT", "X24BT" ,"X26BT" ,"X27BT", "X29BT")
+ 
+ length(ln_cols)
+```
+
+
+Comparing LN Vs. LT
+```{r}
+conditions_ln_lt <- sapply(c(ln_cols,lt_cols), function(x) str_sub(x,-2,-1))
+ln_lt_data <- lungbrain_data[,c(ln_cols,lt_cols)]
+EBOut_ln_lt <- EBTest(Data=as.matrix(ln_lt_data), Conditions=conditions_ln_lt, sizeFactors=rep(1,dim(ln_lt_data)[2]),PoolLower = .25, PoolUpper = .75, maxround=5)
+p_values_ln_lt <- EBOut_ln_lt$PPDE
+```
+
+Comparing LN Vs. BT
+```{r}
+conditions_ln_bt <- sapply(c(ln_cols,bt_cols), function(x) str_sub(x,-2,-1))
+ln_bt_data <- lungbrain_data[,c(ln_cols,bt_cols)]
+EBOut_ln_bt <- EBTest(Data=as.matrix(ln_bt_data), Conditions=conditions_ln_bt, sizeFactors=rep(1,dim(ln_bt_data)[2]), maxround=5)
+p_values_ln_bt <- EBOut_ln_bt$PPDE
+```
+
+Comparing LT Vs. BT
+
+```{r}
+conditions_lt_bt <- sapply(c(lt_cols,bt_cols), function(x) str_sub(x,-2,-1))
+lt_bt_data <- lungbrain_data[,c(lt_cols,bt_cols)]
+EBOut_lt_bt <- EBTest(Data=as.matrix(lt_bt_data), Conditions=conditions_lt_bt, sizeFactors=rep(1,dim(lt_bt_data)[2]), maxround=5)
+p_values_lt_bt <- EBOut_lt_bt$PPDE
+```
+
+
+Storing the data
+```{r}
+ln_lt_df = data.frame(genes = names(p_values_ln_lt), p_values = p_values_ln_lt)
+write.table(ln_lt_df,file = "~/UW_classes/BMI826/project/data/p_values_ln_lt.csv", quote = FALSE, row.names = FALSE, sep=",")
+
+ln_bt_df = data.frame(genes = names(p_values_ln_bt), p_values_bt = p_values_ln_bt)
+write.csv(ln_bt_df,file = "~/UW_classes/BMI826/project/data/p_values_ln_bt.csv", quote = FALSE, row.names = FALSE)
+
+lt_bt_df = data.frame(genes = names(p_values_lt_bt), p_values_ltvsbt = p_values_lt_bt)
+write.csv(lt_bt_df,file = "~/UW_classes/BMI826/project/data/p_val_lt_bt.csv", quote = FALSE, row.names = FALSE)
+
+```
+
+
+
+
+```{r}
+genes_network <- read.csv("~/UW_classes/BMI826/project/data/protein_interactions.txt",sep = "\t",stringsAsFactors = FALSE, header = FALSE)
+
+genes_network <- genes_network[,c('V2','V5','V6','V15')]
+names(genes_network) <- c("species",'protein1','protein2','score')
+
+str_split <- function(s,sep='-'){
+  splits <- strsplit(s,sep)[[1]]
+  if(length(splits) >= 2)
+    return(splits[2])
+  else
+    return(s)
+}
+
+genes_network$species <- sapply(genes_network$species, function(x) str_split(x,'_'))
+genes_network$protein1 <- sapply(genes_network$protein1, function(x) str_split(x,':'))
+genes_network$protein2 <- sapply(genes_network$protein2, function(x) str_split(x,':'))
+genes_network$score <- sapply(genes_network$score, function(x) str_split(x,':'))
+genes_network$score <- as.numeric(genes_network$score)
+
+
+genes_network <- genes_network[genes_network$species == 'HUMAN',c("protein1","protein2","score")]
+
+```
+
+```{r}
+dim(genes_network)
+hist(genes_network$score)
+```
+
+
+```{r}
+genes_network <- genes_network[genes_network$score > 850,]
+write.csv(genes_network,file = "~/UW_classes/BMI826/project/data/gene_network_clean.csv", row.names = FALSE, quote = FALSE)
+```
+
+```{r}
+protein.graph <- graph.data.frame(genes_network,directed = FALSE)
+vcount(protein.graph)
+```
+
+```{r}
+ecount(protein.graph)
+```
+
+
+Reading the modules
+```{r}
+module1_ln_bt <- read.csv("~/UW_classes/BMI826/project/data/module1_ln_lt.csv")
+head(module1_ln_bt)
+hist(module1_ln_bt$p_values)
+```
+
+
+
+
+```{r}
+
+jacard_dist <- function(df1,df2){
+  return(length(intersect(df1$name,df2$name))/length(union(df1$name,df2$name)))
+}
+
+lt_module1 <- read.csv("~/UW_classes/BMI826/project/data/lt_Module1.csv")
+lt_module2 <- read.csv("~/UW_classes/BMI826/project/data/lt_Module2.csv")
+lt_module6 <- read.csv("~/UW_classes/BMI826/project/data/lt_Module6.csv")
+
+bt_module1 <- read.csv("~/UW_classes/BMI826/project/data/bt_Module1.csv")
+bt_module3 <- read.csv("~/UW_classes/BMI826/project/data/bt_Module3.csv")
+bt_module7 <- read.csv("~/UW_classes/BMI826/project/data/bt_Module7.csv")
+
+lt_bt_module1 <- read.csv("~/UW_classes/BMI826/project/data/lt_bt_Module1.csv")
+lt_bt_module9 <- read.csv("~/UW_classes/BMI826/project/data/lt_bt_Module9.csv")
+
+jacard_dist(lt_module1,bt_module1)
+jacard_dist(lt_module1,lt_bt_module1)
+jacard_dist(bt_module1,lt_bt_module1)
+
+```
+
+```{r}
+head(lt_bt_module1)
+```
+
+
+
+```{r}
+p_sorted <- sort(p_values_lt_bt)
+cat(paste(names(p_sorted[p_sorted < 0.01]),'\n'))
+
+ord <- order(lt_bt_module1$p_values_ltvsbt)
+cat(paste(lt_bt_module1$name[ord],'\n'))
+hist(lt_bt_module1$p_values_ltvsbt, breaks = 40, main="Distribution of p-values LT vs. BT", xlab = 'p-values',ylab = 'counts')
+```
+
+
+
+
+
+
+----- END --------
+
+```{r}
+dim(ln_lt_df)
+
+
+```
+
+
+```{r}
+conditions <- sapply(names(lungbrain_data), function(x) str_sub(x,-2,-1))
+lt_bt <- conditions == 'LT' |  conditions == 'BT'
+
+data_lt_bt <- lungbrain_data[,lt_bt]
+
+EBOut <- EBTest(Data=as.matrix(data_lt_bt), Conditions=conditions[lt_bt], sizeFactors=rep(1,dim(data_lt_bt)[2]), maxround=5)
+
+
+EBDERes = GetDEResults(EBOut, FDR=0.05)
+
+p_values <- EBOut$PPDE
+```
+
